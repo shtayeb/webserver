@@ -4,6 +4,7 @@
 #include <sys/sendfile.h>
 #include <unistd.h> // for close function
 #include <netinet/in.h> // for sockaddr_in structure
+#include <stdio.h>
 
 /*
 What does this code do?
@@ -20,6 +21,8 @@ This is a basic implementation of an HTTP server:
  * Sockets
  * A socket is an endpoint for communication between two machines. It acts like a telephone connection.
  */
+
+#define BUFFER_SIZE 2024
 
 void main() {
 	/*
@@ -53,29 +56,45 @@ void main() {
 	//   the 10 indicates the maximum number of pending connections in the queue.
 	listen(s,10);
 
-	// accept(socket, address, addrlen)
-	// client file descriptor
-	int client_fd = accept(s,0,0);
+	while (1) {
+		// accept(socket, address, addrlen)
+		// client file descriptor
+		int client_fd = accept(s,0,0);
 
-	char buffer[256] = {0};
-	// recv -> receive the string that client is sending
-	// 256 -> len
-	recv(client_fd,buffer,256,0);
+		char buffer[256] = {0};
+		// recv -> receive the string that client is sending
+		// 256 -> len
+		recv(client_fd,buffer,256,0);
 
-	// Example of typical HTTP request -> GET /file.html HTTP/1.1
-	// Only get the name of the file
-	char* f = buffer + 5; // escape 5 bytes to get to the file name. Skip "GET /"
-	*strchr(f,' ') = 0; // change the space to null terminator, which leaves only the name of the file (file.html)
+		// Example of typical HTTP request -> GET /file.html HTTP/1.1
+		// Only get the name of the file
+		char* file_name = buffer + 5; // escape 5 bytes to get to the file name. Skip "GET /"
+		*strchr(file_name,' ') = 0; // change the space to null terminator, which leaves only the name of the file (file.html)
 
-	// open the file in readonly mode
-	int opened_fd = open(f,O_RDONLY);
+		// open the file in readonly mode
+		// int opened_fd = open(f,O_RDONLY);
+		FILE *file = fopen(file_name,"r");
 
-	// transfer data from the file to the client socket
-	// sendfile(int output_file_descriptor, int input_fd,int offset,int count)
-	sendfile(client_fd,opened_fd,0,256);
+		char file_content[BUFFER_SIZE];
+		size_t read_size = fread(file_content,1,BUFFER_SIZE,file);
+
+		// Response
+		char response[BUFFER_SIZE];
+		snprintf(response, sizeof(response),
+			"HTTP/1.1 200 OK\r\n"
+			"Content-Type: text/html\r\n"
+			"Content-Length: %ld\r\n\r\n%s",
+			read_size,file_content);
+
+		// transfer data from the file to the client socket
+		// sendfile(int output_file_descriptor, int input_fd,int offset,int count)
+		write(client_fd,response,strlen(response));
+
+		// close() comes from unistd
+		fclose(file);
+		close(client_fd);
+	}
 
 	// close() comes from unistd
-	close(opened_fd);
-	close(client_fd);
 	close(s);
 }
